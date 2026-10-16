@@ -339,4 +339,140 @@
                     labels: ['Brand Strategy', 'P&L Management', 'Vendor Negotiation', 'Team Leadership', 'Customer Exp (CX)', 'Process Systems'],
                     datasets: [{
                         label: 'Core Competencies',
+                        data: [95, 85, 90, 100, 95, 90],
+                        backgroundColor: 'rgba(232, 141, 103, 0.2)', // Coral transparent
+                        borderColor: '#E88D67', // Coral
+                        pointBackgroundColor: '#4A0E4E',
+                        pointBorderColor: '#fff',
+                        pointHoverBackgroundColor: '#fff',
+                        pointHoverBorderColor: '#4A0E4E'
+                    }]
+                },
+                options: { 
+                    responsive: true, maintainAspectRatio: false,
+                    scales: { r: { min: 50, max: 100, ticks: { display: false } } },
+                    plugins: { legend: { display: false } }
+                }
+            });
+        };
+        initCharts();
+
+        // --- 3. Firebase Setup (Boilerplate) ---
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        
+        // Note: Configure this with actual Firebase credentials when deploying
+        const firebaseConfig = {}; 
+        let app, auth;
+        try {
+            if (Object.keys(firebaseConfig).length > 0) {
+                app = initializeApp(firebaseConfig);
+                auth = getAuth(app);
+                signInAnonymously(auth).catch(console.error);
+            }
+        } catch (e) { console.log("Firebase setup skipped for preview mode."); }
+
+        // --- 4. Gemini API Integrations ---
+        const apiKey = ""; // Insert Key here
+        const LLM_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+        const TTS_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key=${apiKey}`;
+
+        // Generic Fetch Wrapper
+        async function fetchGemini(url, payload) {
+            const response = await fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            if (!response.ok) throw new Error(`API Error: ${response.status}`);
+            return await response.json();
+        }
+
+        // Feature A: AI Strategy Synthesizer
+        window.generatePlaybook = async function() {
+            if(!apiKey) return alert("Gemini API Key missing in code.");
+            
+            const btn = document.getElementById('generatePlaybookBtn');
+            const loading = document.getElementById('playbookLoading');
+            const output = document.getElementById('playbookOutput');
+            const selectedScenario = document.querySelector('input[name="scenario"]:checked').value;
+            
+            btn.disabled = true; loading.classList.remove('hidden'); output.innerHTML = "";
+
+            const systemPrompt = "You are an expert Operations Executive and Brand Strategist named April Mayfield. Write a concise, 3-step action plan (max 100 words total) to address the user's scenario. Be authoritative, focus on ROI and brand integrity.";
+            
+            try {
+                const result = await fetchGemini(LLM_URL, {
+                    contents: [{ parts: [{ text: `Scenario: ${selectedScenario}` }] }],
+                    systemInstruction: { parts: [{ text: systemPrompt }] },
+                });
+                
+                const text = result.candidates?.[0]?.content?.parts?.[0]?.text || "Generation failed.";
+                // Format output nicely
+                output.innerHTML = text.replace(/\n/g, '<br>').replace(/\*\*(.*?)\*\*/g, '<strong class="text-brand-plum">$1</strong>');
+            } catch (error) {
+                output.innerHTML = `<span class="text-red-500">Error: ${error.message}</span>`;
+            } finally {
+                loading.classList.add('hidden'); btn.disabled = false;
+            }
+        };
+
+        // Feature B: AI Audio Intro (TTS)
+        // PCM to WAV conversion utilities
+        function base64ToArrayBuffer(b64) {
+            const bin = atob(b64); const bytes = new Uint8Array(bin.length);
+            for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+            return bytes.buffer;
+        }
+        function pcmToWav(pcm16, sampleRate) {
+            const buffer = new ArrayBuffer(44 + pcm16.length * 2);
+            const view = new DataView(buffer);
+            let offset = 0;
+            const writeStr = str => { for(let i=0; i<str.length; i++) { view.setUint8(offset, str.charCodeAt(i)); offset++; } };
+            
+            writeStr("RIFF"); view.setUint32(offset, 36 + pcm16.length * 2, true); offset += 4;
+            writeStr("WAVE"); writeStr("fmt "); view.setUint32(offset, 16, true); offset += 4;
+            view.setUint16(offset, 1, true); offset += 2; view.setUint16(offset, 1, true); offset += 2;
+            view.setUint32(offset, sampleRate, true); offset += 4; view.setUint32(offset, sampleRate * 2, true); offset += 4;
+            view.setUint16(offset, 2, true); offset += 2; view.setUint16(offset, 16, true); offset += 2;
+            writeStr("data"); view.setUint32(offset, pcm16.length * 2, true); offset += 4;
+            for (let i = 0; i < pcm16.length; i++) { view.setInt16(offset, pcm16[i], true); offset += 2; }
+            return new Blob([buffer], { type: 'audio/wav' });
+        }
+
+        window.readIntroduction = async function() {
+            if(!apiKey) return alert("Gemini API Key missing in code.");
+
+            const btn = document.getElementById('readIntroBtn');
+            const loading = document.getElementById('audioLoading');
+            const container = document.getElementById('audioPlayerContainer');
+            const player = document.getElementById('audioPlayer');
+            const text = "Hi, I'm April Mayfield. I specialize in bridging the gap between high-level vision and ground-level execution, driving operational excellence and scalable brand development.";
+            
+            btn.disabled = true; loading.classList.remove('hidden'); container.classList.add('hidden');
+
+            try {
+                const result = await fetchGemini(TTS_URL, {
+                    contents: [{ parts: [{ text: text }] }],
+                    generationConfig: { responseModalities: ["AUDIO"], speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: "Puck" } } } }
+                });
+                
+                const audioData = result?.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+                if (audioData) {
+                    const pcm16 = new Int16Array(base64ToArrayBuffer(audioData));
+                    const wavBlob = pcmToWav(pcm16, 24000); // 24kHz default for Gemini TTS
                     
+                    if (player.src) URL.revokeObjectURL(player.src);
+                    player.src = URL.createObjectURL(wavBlob);
+                    container.classList.remove('hidden');
+                    player.play();
+                }
+            } catch (error) {
+                console.error(error); alert("Failed to generate audio.");
+            } finally {
+                loading.classList.add('hidden'); btn.disabled = false;
+            }
+        };
+    </script>
+</body>
+</html>
